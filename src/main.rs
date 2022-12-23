@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use log::LevelFilter;
 use srv::IntoPriorityResolver;
-use tokio::net::{TcpListener, TcpStream, ToSocketAddrs};
+use tokio::net::TcpListener;
 use trust_dns_resolver::config::{ResolverConfig, ResolverOpts};
 use trust_dns_resolver::{TokioAsyncResolver, TokioConnectionProvider, TokioHandle};
 
@@ -80,35 +80,30 @@ pub async fn main() -> anyhow::Result<()> {
     let listener = TcpListener::bind(config.bind).await?;
 
     'connection_loop: while let Ok(inbound) = listener.accept().await {
+        let target_clone = config.target.clone();
+
         if config.srv {
             let lookup = resolver.srv_lookup(path.clone()).await?;
             let mut resolver = lookup.iter().priority_resolver();
             while let Some(record) = resolver.next() {
                 if let Ok(outbound) =
-                    connect_basic(format!("{}:{}", record.target, record.port)).await
+                    proxy::connect_basic(format!("{}:{}", record.target, record.port)).await
                 {
-                    proxy_to(inbound.0, outbound).await?;
+                    if let Err(err) =
+                        proxy::proxy_connection(inbound.0, outbound, target_clone).await
+                    {
+                        log::error!("Error proxying connection: {}", err);
+                    }
                     continue 'connection_loop;
                 };
             }
         } else {
-            let connect = connect_basic(format!("{}:25565", &config.target)).await?;
-            proxy_to(inbound.0, connect).await?;
+            let connect = proxy::connect_basic(format!("{}:25565", &target_clone)).await?;
+            if let Err(err) = proxy::proxy_connection(inbound.0, connect, target_clone).await {
+                log::error!("Error proxying connection: {}", err);
+            }
         }
     }
 
-    Ok(())
-}
-
-async fn connect_basic<T: ToSocketAddrs>(addr: T) -> std::io::Result<TcpStream> {
-    TcpStream::connect(addr).await
-}
-
-async fn proxy_to(mut inbound: TcpStream, mut outbound: TcpStream) -> Result<(), tokio::io::Error> {
-    tokio::spawn(async move {
-        tokio::io::copy_bidirectional(&mut inbound, &mut outbound)
-            .await
-            .ok();
-    });
     Ok(())
 }
