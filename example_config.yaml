@@ -1,0 +1,6 @@
+logger:
+  log_level: INFO
+
+target: "minehut.com"
+srv: true
+bind: "0.0.0.0:25565"
