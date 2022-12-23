@@ -76,7 +76,7 @@ pub async fn main() -> anyhow::Result<()> {
         ResolverOpts::default(),
         TokioConnectionProvider::new(TokioHandle),
     )?;
-    let path = format!("_minecraft._tcp.{}", config.target);
+    let path = format!("_minecraft._tcp.{}.", config.target);
     let listener = TcpListener::bind(config.bind).await?;
 
     'connection_loop: while let Ok(inbound) = listener.accept().await {
